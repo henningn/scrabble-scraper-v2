@@ -22,6 +22,7 @@ from threading import Event
 from typing import Union
 
 import numpy as np
+
 from config import config
 from util import Singleton
 
@@ -37,6 +38,7 @@ class CameraEnum(Enum):
     PICAMERA = 2
     OPENCV = 3
     FILE = 4
+    PICAMERA64 = 5
 
 
 class Camera(metaclass=Singleton):  # type: ignore
@@ -44,12 +46,17 @@ class Camera(metaclass=Singleton):  # type: ignore
 
     def __init__(self, src: int = 0, use_camera: CameraEnum = CameraEnum.AUTO,
                  resolution=(config.video_width, config.video_height), framerate=config.video_fps, **kwargs):
+
         machine = platform.machine()
         if (use_camera == CameraEnum.PICAMERA) or (use_camera == CameraEnum.AUTO and machine in ('armv7l', 'armv6l')):
             from .camera_rpi import CameraRPI
-            self.stream: Union[CameraRPI, CameraOpenCV, CameraFile] = CameraRPI(
+            from .camera_rpi64 import CameraRPI64
+            self.stream: Union[CameraRPI, CameraOpenCV, CameraFile, CameraRPI64] = CameraRPI(
                 resolution=resolution, framerate=framerate, **kwargs)
-        elif (use_camera == CameraEnum.OPENCV) or (use_camera == CameraEnum.AUTO and machine in ('aarch64')):
+        elif (use_camera == CameraEnum.PICAMERA64) or (use_camera == CameraEnum.AUTO and machine in ('aarch64')):
+            from .camera_rpi64 import CameraRPI64
+            self.stream = CameraRPI64(resolution=resolution, framerate=framerate)
+        elif (use_camera == CameraEnum.OPENCV):
             self.stream = CameraOpenCV(src=src, resolution=resolution, framerate=framerate)
         elif use_camera in (CameraEnum.FILE, CameraEnum.AUTO):
             self.stream = CameraFile()

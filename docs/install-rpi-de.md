@@ -2,8 +2,11 @@
 
 ## Basis-Installation des RPI
 
-Die Erzeugung der SD Karte mittels "Raspberry Pi Imager". Hier das Image "PI OS Lite (32bit) - Debian Bullseye" auswählen. Das 64Bit Image unterstützt z.Zt. noch nicht
-vollständig die PiCamera.
+Für die Installation muss entweder die 64bit oder due 32bit Variante des PI OS Lite gewählt werden.
+
+### 32bit
+
+Die Erzeugung der SD Karte mittels "Raspberry Pi Imager". Hier das Image "PI OS Lite (64bit) - Debian Bullseye" auswählen.
 
 Bei dem Erzeugen der SD Karte ggf. folgende Optionen konfigurieren
 
@@ -29,12 +32,10 @@ sudo raspi-config
 
 Es müssen aktiviert werden
 
-- Kamera
+- Kamera (Legacy Camera aktivieren)
 - i2c
 
-Im nächsten Schritt werden allgemeine Hilfsmittel installiert
-
-### Git und Python installieren
+#### Git und Python Libraries installieren (32bit)
 
 ```bash
 sudo apt-get install -y git python3-venv python3-dev
@@ -56,7 +57,51 @@ libgraphite2-3 libhdf5-103-1 libgfortran5 libsoxr0 libpgm-5.3-0 libopenmpt0 libx
 libdatrie1 libgdk-pixbuf-2.0-0 libopenjp2-7 libwebpmux3 --fix-missing
 ```
 
-### Clone des ScrabScrap Repositories
+### 64bit (draft - PICamera muss noch reimplementiert werden)
+
+Die Erzeugung der SD Karte mittels "Raspberry Pi Imager". Hier das Image "PI OS Lite (64bit) - Debian Bullseye" auswählen.
+
+Bei dem Erzeugen der SD Karte ggf. folgende Optionen konfigurieren
+
+- hostname = scrabscrap
+- ssh aktivieren = true
+- WiFi Zugriff = ID / Passwort
+- User / Passwort = (alter default: pi/raspberry)
+- Spracheinstellungen
+
+Nachdem der RPI gestartet wurde, per ssh eine Verbindung zum Rechner aufbauen.
+
+```bash
+sudo apt update
+sudo apt full-upgrade
+```
+
+Nach dem Update technische Einstellungen auf dem RPI vornehmen
+
+```bash
+sudo raspi-config
+```
+
+Es müssen aktiviert werden
+
+- **deaktiviere** legacy Camera
+- i2c
+
+#### Git und Python Libraries installieren (64bit)
+
+```bash
+sudo apt install -y git python3-venv python3-dev
+#installation des Tools, um die ic2 Ports zu ermitteln (i2cdetect -y 1)
+sudo apt install -y i2c-tools
+#Installation der Libs für OpenCV
+sudo apt install -y --fix-missing libjpeg-dev libpng-dev libavcodec-dev libavformat-dev libswscale-dev libgtk2.0-dev
+sudo apt install -y --fix-missing libcanberra-gtk* libgtk-3-dev libgstreamer1.0-dev gstreamer1.0-gtk3 
+sudo apt install -y --fix-missing libgstreamer-plugins-base1.0-dev gstreamer1.0-gl libxvidcore-dev libx264-dev libtbb2 
+sudo apt install -y --fix-missing libtbb-dev libdc1394-22-dev libv4l-dev v4l-utils libopenblas-dev libatlas-base-dev 
+sudo apt install -y --fix-missing libblas-dev liblapack-dev gfortran libhdf5-dev
+```
+
+## Clone des ScrabScrap Repositories
 
 Falls von dem RPI auch Commits an das Repository vorgenommen werden sollen, muss
 die GitHub Userkennung gesetzt werden.
@@ -76,7 +121,7 @@ cd
 git clone https://github.com/scrabscrap/scrabble-scraper-v2.git
 ```
 
-### Python Konfiguration erzeugen
+## Python Konfiguration erzeugen
 
 ```bash
 cd ~/scrabble-scraper-v2/python
@@ -87,7 +132,9 @@ pip install -U pip setuptools wheel
 pip install --force-reinstall -r requirements.txt --only-binary=:all:
 ```
 
-## Testen der RPI Installation
+## Testen der Installation
+
+### OpenCV
 
 Die Installation von OpenCV kann wie folgt geprüft werden
 
@@ -100,6 +147,8 @@ python
 '4.5.5'
 >> quit()
 ```
+
+### i2c Bus
 
 Prüfen des Zugriffes auf den i2c Bus
 
@@ -165,10 +214,6 @@ dtoverlay=disable-bt
 # Enable audio (loads snd_bcm2835)
 dtparam=audio=off
 ```
-
-## Installation eines Develepment Rechners
-
-siehe FAQ
 
 ## Automatischer HotSpot
 
@@ -239,4 +284,49 @@ Read the time directly from the RTC module
 
 ```bash
 sudo hwclock -v -r
+```
+
+### Optimierungen
+
+#### Bluetooth ausschalten
+
+```bash
+sudo nano /boot/config.txt
+```
+
+```text
+# Disable Bluetooth
+dtoverlay=disable-bt
+```
+
+```bash
+sudo systemctl disable hciuart.service
+sudo systemctl disable bluealsa.service
+sudo systemctl disable bluetooth.service
+```
+
+Zum Aktivieren der Änderung einen Reboot durchführen.
+
+#### Avahi ausschalten
+
+```bash
+sudo service avahi-daemon stop
+sudo systemctl disable avahi-daemon
+```
+
+### System Logging ausschalten
+
+```bash
+service rsyslog stop
+systemctl disable rsyslog
+```
+
+### Journalctl Schreiben auf Disk ausschalten
+
+`sudo nano /etc/systemd/journald.conf`
+
+```text
+[Journal]
+Storage=volatile
+RuntimeMaxUse=32M
 ```
