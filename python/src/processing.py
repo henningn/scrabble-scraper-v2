@@ -359,15 +359,82 @@ def _development_recording(game: Game, img: Optional[Mat], suffix: str = '', inf
             recording_logger.info(f'{game_id} board: {game.moves[-1].board}')
 
 
-def _find_word(board: dict, changed: List) -> Tuple[bool, Tuple[int, int], str]:
-    if len(changed) < 1:
-        logging.info('move: no new tiles detected')
-        raise NoMoveException('move: no new tiles')
+def _fix_invalid_move(board: dict, changed: List):
+    # pylint: disable=R0911, R0912
+    previous_board = {i: board[i] for i in board if i not in changed}
+    changed_without_blanks = list({i: board[i] for i in set(changed) if board[i][0] != '_'})
+    new_board = {i: board[i] for i in board if i not in changed or i in changed_without_blanks}
+
+    horizontal = len({col for col, _ in changed_without_blanks}) > 1
+    vertical = len({row for _, row in changed_without_blanks}) > 1
+    if len(changed_without_blanks) < 1:
+        return new_board, changed_without_blanks
+    if len(changed_without_blanks) == 1:                                       # one tile
+        col, row = changed_without_blanks[-1]                                  # check for connection
+        if (col - 1, row) in previous_board or (col + 1, row) in previous_board or \
+                (col, row + 1) in previous_board or (col, row + 1) in previous_board:
+            return new_board, changed_without_blanks
+        for coord in ([(col - 2, row), (col - 1, row)], [(col + 2, row), (col + 1, row)], [(col, row - 2), (col, row - 1)],
+                      [(col, row + 2), (col, row + 1)]):
+            if coord[0] in previous_board and coord[1] in changed:
+                changed_without_blanks.append(coord[1])
+                new_board[coord[1]] = board[coord[1]]
+                return new_board, changed_without_blanks
+        return new_board, changed_without_blanks
+    if horizontal:
+        min_col, min_row = min(changed_without_blanks, key=lambda t: t[0])
+        max_col, _ = max(changed_without_blanks, key=lambda t: t[0])
+        for col in range(min_col, max_col):                                  # fill gaps with blanks
+            if board[(col, min_row)][0] == '_' and (col, min_row) in changed:
+                new_board[(col, min_row)] = board[(col, min_row)]
+                changed_without_blanks.append((col, min_row))
+        # teste auf Verbindung zu vorhandenen Steinen
+        for col in range(min_col, max_col):                                  # check for connection
+            if (col, min_row - 1) in previous_board or (col, min_row + 1) in previous_board:
+                return new_board, changed_without_blanks
+        if (min_col - 1, min_row) in previous_board or (max_col + 1, min_row) in previous_board:
+            return new_board, changed_without_blanks
+        # teste auf Verbindung zu vorhandenen Steinen mit einem Blank Abstand
+        for coord in ([(min_col - 2, min_row), (min_col - 1, min_row)], [(max_col + 2, min_row), (max_col + 1, min_row)]):
+            if coord[0] in previous_board and coord[1] in changed:
+                changed_without_blanks.append(coord[1])
+                new_board[coord[1]] = board[coord[1]]
+                return new_board, changed_without_blanks
+    if vertical:
+        min_col, min_row = min(changed_without_blanks, key=lambda t: t[1])
+        _, max_row = max(changed_without_blanks, key=lambda t: t[1])
+        for row in range(min_row, max_row):                                  # fill gaps with blanks
+            if board[(min_col, row)][0] == '_' and (min_col, row) in changed:
+                new_board[(min_col, row)] = board[(min_col, row)]
+                changed_without_blanks.append((min_col, row))
+        # teste auf Verbindung zu vorhandenen Steinen
+        for row in range(min_row, max_row):                                  # check for connection
+            if (min_col - 1, row) in previous_board or (min_col + 1, row) in previous_board:
+                return new_board, changed_without_blanks
+        if (min_col, min_row - 1) in previous_board or (min_col, max_row + 1) in previous_board:
+            return new_board, changed_without_blanks
+        # teste auf Verbindung zu vorhandenen Steinen mit einem Blank Abstand
+        for coord in ([(min_col, min_row - 2), (min_col, min_row - 1)], [(min_col, max_row + 2), (min_col, max_row + 1)]):
+            if coord[0] in previous_board and coord[1] in changed:
+                changed_without_blanks.append(coord[1])
+                new_board[coord[1]] = board[coord[1]]
+                return new_board, changed_without_blanks
+    return new_board, changed_without_blanks
+
+
+def _find_word(board: dict, changed: List) -> Tuple[bool, Tuple[int, int], str, dict]:
     horizontal = len({col for col, _ in changed}) > 1
     vertical = len({row for _, row in changed}) > 1
     if vertical and horizontal:
+        board, changed = _fix_invalid_move(board, changed)
+        horizontal = len({col for col, _ in changed}) > 1
+        vertical = len({row for _, row in changed}) > 1
+    if vertical and horizontal:
         logging.warning(f'illegal move: {changed}')
         raise InvalidMoveExeption('move: illegal move horizontal and vertical changes detected')
+    if len(changed) < 1:
+        logging.info('move: no new tiles detected')
+        raise NoMoveException('move: no new tiles')
     if len(changed) == 1:  # only 1 tile
         (col, row) = changed[-1]
         horizontal = ((col - 1, row) in board) or ((col + 1, row) in board)
@@ -389,7 +456,7 @@ def _find_word(board: dict, changed: List) -> Tuple[bool, Tuple[int, int], str]:
         while col < 15 and (col, row) in board:
             _word += board[(col, row)][0] if (col, row) in changed else '.'
             col += 1
-    return vertical, (minx, miny), _word
+    return vertical, (minx, miny), _word, board
 
 
 def _image_processing(waitfor: Optional[Future], game: Game, img: Mat) -> Tuple[Mat, dict]:
@@ -412,7 +479,7 @@ def _image_processing(waitfor: Optional[Future], game: Game, img: Mat) -> Tuple[
                 del _move.new_tiles[i]
             logging.warning(f'try to recalculate move #{_move.move}')
             try:
-                _move.is_vertical, _move.coord, _move.word = _find_word(_move.board, sorted(_move.new_tiles))
+                _move.is_vertical, _move.coord, _move.word, _ = _find_word(_move.board, sorted(_move.new_tiles))
                 _move.type = MoveType.REGULAR
                 prev_score = game.moves[-2].score if len(game.moves) > 2 else (0, 0)
                 _move.points, _move.score, _move.is_scrabble = _move.calculate_score(prev_score)
@@ -449,7 +516,7 @@ def _move_processing(game: Game, player: int, played_time: Tuple[int, int], warp
     if len(changed_tiles) > 0:                                                 # 7. fix old moves
         previous_score = _recalculate_score_on_tiles_change(game, board, changed_tiles)
     try:                                                                       # 8. find word and create move
-        is_vertical, coord, word = _find_word(current_board, sorted(new_tiles))
+        is_vertical, coord, word, current_board = _find_word(current_board, sorted(new_tiles))
         current_move = Move(MoveType.REGULAR, player=player, coord=coord, is_vertical=is_vertical, word=word,
                             new_tiles=new_tiles, removed_tiles=removed_tiles, board=current_board, played_time=played_time,
                             previous_score=previous_score, img=warped)
